@@ -121,7 +121,7 @@ jobs:
 
           rm -rf ./package/custom_packages
           mkdir -p ./package/custom_packages
-          git clone https://github.com/timsaya/luci-app-bandix.git ./package/custom_packages/luci-app-bandix
+          git clone https://github.com/Trirrin/luci-app-bandix.git ./package/custom_packages/luci-app-bandix
 
           # Update feeds to github source
           sed -i \
@@ -158,7 +158,7 @@ jobs:
         run: |
           cd sdk/package/custom_packages
           rm -rf luci-app-bandix
-          git clone https://github.com/timsaya/luci-app-bandix.git luci-app-bandix
+          git clone https://github.com/Trirrin/luci-app-bandix.git luci-app-bandix
 
       - name: Compile
         id: compile

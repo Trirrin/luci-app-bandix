@@ -7,6 +7,7 @@
 BANDIX_PORT=$(uci get bandix.general.port 2>/dev/null || echo "8686")
 readonly BANDIX_API_BASE="http://127.0.0.1:$BANDIX_PORT"
 readonly BANDIX_DEVICES_API="$BANDIX_API_BASE/api/traffic/devices"
+readonly BANDIX_DEVICES_SUMMARY_API="$BANDIX_API_BASE/api/traffic/devices/summary"
 readonly BANDIX_LIMITS_API="$BANDIX_API_BASE/api/traffic/limits"
 readonly BANDIX_METRICS_API="$BANDIX_API_BASE/api/traffic/metrics"
 readonly BANDIX_METRICS_DAY_API="$BANDIX_API_BASE/api/traffic/metrics/day"
@@ -64,6 +65,29 @@ get_device_status() {
 		echo "$data_part"
 	else
 		echo '{"devices":[]}'
+	fi
+}
+
+# 获取设备状态汇总（按周期）
+get_devices_summary() {
+	local period="$1"
+	[ -z "$period" ] && period="realtime"
+	
+	local url="$BANDIX_DEVICES_SUMMARY_API?period=$period"
+	local api_result=$(curl -s --connect-timeout 2 --max-time 5 "$url" 2>/dev/null)
+	
+	# 检查API调用是否成功
+	if [ $? -ne 0 ] || [ -z "$api_result" ]; then
+		echo '{"period":"'"$period"'","period_seconds":0,"devices":[]}'
+		return
+	fi
+	
+	# 提取 data 部分并返回
+	local data_part=$(echo "$api_result" | jsonfilter -e '$.data' 2>/dev/null)
+	if [ -n "$data_part" ]; then
+		echo "$data_part"
+	else
+		echo '{"period":"'"$period"'","period_seconds":0,"devices":[]}'
 	fi
 }
 
@@ -930,6 +954,10 @@ case "$1" in
 		json_add_object "getStatus"
 		json_close_object
 		
+		json_add_object "getDevicesSummary"
+		json_add_string "period"
+		json_close_object
+		
 		json_add_object "getMetrics"
 		json_add_string "mac"
 		json_close_object
@@ -1013,6 +1041,20 @@ case "$1" in
 		case "$2" in
 			getStatus)
 				get_device_status
+				;;
+			getDevicesSummary)
+				period=""
+				input=""
+				if read -t 1 -r input; then
+					:
+				fi
+				if [ -n "$input" ]; then
+					period="$(echo "$input" | jsonfilter -e '$[0]' 2>/dev/null)"
+					[ -z "$period" ] && period="$(echo "$input" | jsonfilter -e '$.period' 2>/dev/null)"
+				else
+					[ -n "$3" ] && period="$3"
+				fi
+				get_devices_summary "$period"
 				;;
 			getMetrics)
 				# logger "luci.bandix: getMetrics called"

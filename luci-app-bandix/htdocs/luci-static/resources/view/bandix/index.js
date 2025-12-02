@@ -133,6 +133,13 @@ var callStatus = rpc.declare({
     expect: {}
 });
 
+var callGetDevicesSummary = rpc.declare({
+    object: 'luci.bandix',
+    method: 'getDevicesSummary',
+    params: ['period'],
+    expect: {}
+});
+
 var callSetHostname = rpc.declare({
     object: 'luci.bandix',
     method: 'setHostname',
@@ -3942,6 +3949,9 @@ function downsampleForMobile(data, labels, upSeries, downSeries, maxPoints) {
                         }
                     }
                     
+                    // 刷新设备数据（统计卡片和设备列表）
+                    updateDeviceData();
+
                     // 刷新历史数据
                     refreshHistory();
                 });
@@ -4010,10 +4020,25 @@ function downsampleForMobile(data, labels, upSeries, downSeries, maxPoints) {
         // 存储移动端卡片展开状态（设备MAC地址集合）
         var expandedDeviceCards = new Set();
 
+        // 获取周期显示名称
+        function getPeriodLabel(period) {
+            switch (period) {
+                case 'realtime': return _('Cumulative');
+                case 'day': return _('Last 24 Hours');
+                case 'week': return _('Last 7 Days');
+                case 'month': return _('Last 30 Days');
+                default: return _('Cumulative');
+            }
+        }
+
         // 定义更新设备数据的函数
         function updateDeviceData() {
+            // 根据当前选择的时间范围决定调用哪个 API
+            var period = currentTimeRange;
+            var dataPromise = (period === 'realtime') ? callStatus() : callGetDevicesSummary(period);
+
             return Promise.all([
-                callStatus(),
+                dataPromise,
                 fetchAllScheduleRules()
             ]).then(function (results) {
                 var result = results[0];
@@ -4027,6 +4052,10 @@ function downsampleForMobile(data, labels, upSeries, downSeries, maxPoints) {
                     trafficDiv.innerHTML = '<div class="error">' + _('Unable to fetch data') + '</div>';
                     return;
                 }
+
+                // 检查是否是周期模式（非实时）
+                var isPeriodMode = period !== 'realtime';
+                var periodLabel = getPeriodLabel(period);
 
                 // 更新设备计数
                 var onlineCount = stats.devices.filter(d => isDeviceOnline(d)).length;
@@ -4049,28 +4078,38 @@ function downsampleForMobile(data, labels, upSeries, downSeries, maxPoints) {
                 // 更新统计卡片
                 statsGrid.innerHTML = '';
 
-                // LAN 流量卡片
-                statsGrid.appendChild(E('div', { 'class': 'cbi-section' }, [
-                    E('div', { 'class': 'stats-card-title' }, _('LAN Traffic')),
-                    E('div', { 'style': 'display: flex; flex-direction: column; gap: 8px;' }, [
-                        // 上传行
-                        E('div', { 'style': 'display: flex; align-items: center; gap: 4px;' }, [
-                            E('span', { 'style': 'color: #f97316; font-size: 0.75rem; font-weight: bold;' }, '↑'),
-                            E('span', { 'style': 'color: #f97316; font-size: 1.125rem; font-weight: 700;' }, formatByterate(totalLanSpeedUp, speedUnit)),
-                            E('span', { 'style': 'font-size: 0.75rem; color: #64748b; margin-left: 4px;' }, '(' + formatSize(totalLanUp) + ')')
-                        ]),
-                        // 下载行
-                        E('div', { 'style': 'display: flex; align-items: center; gap: 4px;' }, [
-                            E('span', { 'style': 'color: #06b6d4; font-size: 0.75rem; font-weight: bold;' }, '↓'),
-                            E('span', { 'style': 'color: #06b6d4; font-size: 1.125rem; font-weight: 700;' }, formatByterate(totalLanSpeedDown, speedUnit)),
-                            E('span', { 'style': 'font-size: 0.75rem; color: #64748b; margin-left: 4px;' }, '(' + formatSize(totalLanDown) + ')')
+                // LAN 流量卡片（仅在实时模式下显示数据）
+                if (isPeriodMode) {
+                    // 非实时模式下，LAN 流量不可用
+                    statsGrid.appendChild(E('div', { 'class': 'cbi-section' }, [
+                        E('div', { 'class': 'stats-card-title' }, _('LAN Traffic') + ' (' + periodLabel + ')'),
+                        E('div', { 'style': 'display: flex; flex-direction: column; gap: 8px; opacity: 0.5;' }, [
+                            E('div', { 'style': 'font-size: 0.875rem; color: #64748b;' }, _('LAN traffic is only available in Realtime mode'))
                         ])
-                    ])
-                ]));
+                    ]));
+                } else {
+                    statsGrid.appendChild(E('div', { 'class': 'cbi-section' }, [
+                        E('div', { 'class': 'stats-card-title' }, _('LAN Traffic') + ' (' + periodLabel + ')'),
+                        E('div', { 'style': 'display: flex; flex-direction: column; gap: 8px;' }, [
+                            // 上传行
+                            E('div', { 'style': 'display: flex; align-items: center; gap: 4px;' }, [
+                                E('span', { 'style': 'color: #f97316; font-size: 0.75rem; font-weight: bold;' }, '↑'),
+                                E('span', { 'style': 'color: #f97316; font-size: 1.125rem; font-weight: 700;' }, formatByterate(totalLanSpeedUp, speedUnit)),
+                                E('span', { 'style': 'font-size: 0.75rem; color: #64748b; margin-left: 4px;' }, '(' + formatSize(totalLanUp) + ')')
+                            ]),
+                            // 下载行
+                            E('div', { 'style': 'display: flex; align-items: center; gap: 4px;' }, [
+                                E('span', { 'style': 'color: #06b6d4; font-size: 0.75rem; font-weight: bold;' }, '↓'),
+                                E('span', { 'style': 'color: #06b6d4; font-size: 1.125rem; font-weight: 700;' }, formatByterate(totalLanSpeedDown, speedUnit)),
+                                E('span', { 'style': 'font-size: 0.75rem; color: #64748b; margin-left: 4px;' }, '(' + formatSize(totalLanDown) + ')')
+                            ])
+                        ])
+                    ]));
+                }
 
                 // WAN 流量卡片
                 statsGrid.appendChild(E('div', { 'class': 'cbi-section' }, [
-                    E('div', { 'class': 'stats-card-title' }, _('WAN Traffic')),
+                    E('div', { 'class': 'stats-card-title' }, _('WAN Traffic') + ' (' + periodLabel + ')'),
                     E('div', { 'style': 'display: flex; flex-direction: column; gap: 8px;' }, [
                         // 上传行
                         E('div', { 'style': 'display: flex; align-items: center; gap: 4px;' }, [
@@ -4089,7 +4128,7 @@ function downsampleForMobile(data, labels, upSeries, downSeries, maxPoints) {
 
                 // 总流量卡片
                 statsGrid.appendChild(E('div', { 'class': 'cbi-section' }, [
-                    E('div', { 'class': 'stats-card-title' }, _('Total')),
+                    E('div', { 'class': 'stats-card-title' }, _('Total') + ' (' + periodLabel + ')'),
                     E('div', { 'style': 'display: flex; flex-direction: column; gap: 8px;' }, [
                         // 上传行
                         E('div', { 'style': 'display: flex; align-items: center; gap: 4px;' }, [
